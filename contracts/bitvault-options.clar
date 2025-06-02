@@ -81,3 +81,88 @@
         status: (string-ascii 10), ;; "ACTIVE", "EXERCISED", "EXPIRED"
     }
 )
+
+;; User Balances - Track user deposits and locked collateral
+(define-map user-balances
+    principal
+    {
+        sbtc-balance: uint,
+        locked-collateral: uint,
+    }
+)
+
+;; ORACLE FUNCTIONS
+
+;; Update BTC Price - Oracle-only function for price feeds
+(define-public (update-btc-price (new-price uint))
+    (begin
+        (asserts! (is-eq tx-sender (var-get oracle-address)) ERR_NOT_AUTHORIZED)
+        (asserts! (> new-price u0) ERR_INVALID_PRICE)
+        (var-set btc-price new-price)
+        (var-set price-last-updated stacks-block-height)
+        (ok true)
+    )
+)
+
+;; Get Current BTC Price - Validates price freshness
+(define-read-only (get-current-btc-price)
+    (let (
+            (price (var-get btc-price))
+            (last-updated (var-get price-last-updated))
+            (validity-window (var-get price-validity-window))
+        )
+        (asserts! (> price u0) ERR_INVALID_PRICE)
+        (asserts! (< (- stacks-block-height last-updated) validity-window)
+            ERR_STALE_PRICE
+        )
+        (ok price)
+    )
+)
+
+;; Set Oracle Address - Admin function to update oracle
+(define-public (set-oracle-address (new-oracle principal))
+    (begin
+        (asserts! (is-contract-owner) ERR_NOT_AUTHORIZED)
+        (asserts! (not (is-eq new-oracle 'SP000000000000000000002Q6VF78))
+            ERR_INVALID_PARAMETER
+        )
+        (var-set oracle-address new-oracle)
+        (ok true)
+    )
+)
+
+;; Set Price Validity Window - Configure price staleness threshold
+(define-public (set-price-validity-window (new-window uint))
+    (begin
+        (asserts! (is-contract-owner) ERR_NOT_AUTHORIZED)
+        (asserts!
+            (and
+                (>= new-window MIN_VALIDITY_WINDOW)
+                (<= new-window MAX_VALIDITY_WINDOW)
+            )
+            ERR_INVALID_PARAMETER
+        )
+        (var-set price-validity-window new-window)
+        (ok true)
+    )
+)
+
+;; PRIVATE HELPER FUNCTIONS
+
+;; Authorization Check - Verify contract owner
+(define-private (is-contract-owner)
+    (is-eq tx-sender CONTRACT_OWNER)
+)
+
+;; Option Expiry Check - Validate option is not expired
+(define-private (check-expiry (option-id uint))
+    (let (
+            (option (unwrap! (map-get? options option-id) ERR_OPTION_NOT_FOUND))
+            (current-height stacks-block-height)
+        )
+        (if (> current-height (get expiry option))
+            ERR_OPTION_EXPIRED
+            (ok true)
+        )
+    )
+)
