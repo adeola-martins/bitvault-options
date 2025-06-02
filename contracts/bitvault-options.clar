@@ -277,3 +277,79 @@
         (ok option-id)
     )
 )
+
+;; Exercise Option - Execute option contract for profit
+(define-public (exercise-option (option-id uint))
+    (let (
+            (option (unwrap! (map-get? options option-id) ERR_OPTION_NOT_FOUND))
+            (current-price (unwrap! (get-current-btc-price) ERR_INVALID_PRICE))
+        )
+        ;; Validate exercise conditions
+        (asserts! (is-eq (get holder option) tx-sender) ERR_NOT_AUTHORIZED)
+        (try! (check-expiry option-id))
+        (asserts! (is-eq (get status option) "ACTIVE") ERR_OPTION_NOT_EXERCISABLE)
+        ;; Execute based on option type
+        (if (is-eq (get option-type option) "CALL")
+            ;; CALL option: profitable if current price > strike price
+            (if (> current-price (get strike-price option))
+                (let ((profit (- current-price (get strike-price option))))
+                    (try! (update-user-balance tx-sender profit false))
+                    (map-set options option-id
+                        (merge option { status: "EXERCISED" })
+                    )
+                    (ok true)
+                )
+                ERR_OPTION_NOT_EXERCISABLE
+            )
+            ;; PUT option: profitable if current price < strike price
+            (if (< current-price (get strike-price option))
+                (let ((profit (- (get strike-price option) current-price)))
+                    (try! (update-user-balance tx-sender profit false))
+                    (map-set options option-id
+                        (merge option { status: "EXERCISED" })
+                    )
+                    (ok true)
+                )
+                ERR_OPTION_NOT_EXERCISABLE
+            )
+        )
+    )
+)
+
+;; Expire Option - Process expired options and return collateral
+(define-public (expire-option (option-id uint))
+    (let ((option (unwrap! (map-get? options option-id) ERR_OPTION_NOT_FOUND)))
+        ;; Validate expiry conditions
+        (asserts! (> stacks-block-height (get expiry option))
+            ERR_OPTION_NOT_EXPIRED
+        )
+        (asserts! (is-eq (get status option) "ACTIVE") ERR_OPTION_NOT_EXERCISABLE)
+        ;; Return collateral to option creator
+        (try! (update-user-balance (get creator option) (get collateral option) false))
+        ;; Mark option as expired
+        (map-set options option-id (merge option { status: "EXPIRED" }))
+        (ok true)
+    )
+)
+
+;; READ-ONLY FUNCTIONS
+
+;; Get Option Details
+(define-read-only (get-option (option-id uint))
+    (map-get? options option-id)
+)
+
+;; Get User Balance Information
+(define-read-only (get-user-balance (user principal))
+    (default-to {
+        sbtc-balance: u0,
+        locked-collateral: u0,
+    }
+        (map-get? user-balances user)
+    )
+)
+
+;; Get Platform Fee
+(define-read-only (get-platform-fee)
+    (var-get platform-fee)
+)
