@@ -353,3 +353,31 @@
 (define-read-only (get-platform-fee)
     (var-get platform-fee)
 )
+
+;; ADMINISTRATIVE FUNCTIONS
+
+;; Set Platform Fee - Configure protocol revenue
+(define-public (set-platform-fee (new-fee uint))
+    (begin
+        (asserts! (is-contract-owner) ERR_NOT_AUTHORIZED)
+        (asserts! (<= new-fee MAX_FEE_BASIS_POINTS) ERR_INVALID_PARAMETER)
+        (var-set platform-fee new-fee)
+        (ok true)
+    )
+)
+
+;; Set Minimum Collateral Ratio - Risk management parameter
+(define-public (set-min-collateral-ratio (new-ratio uint))
+    (begin
+        (asserts! (is-contract-owner) ERR_NOT_AUTHORIZED)
+        (asserts!
+            (and
+                (>= new-ratio u100)
+                (<= new-ratio MAX_COLLATERAL_RATIO)
+            )
+            ERR_INVALID_PARAMETER
+        )
+        (var-set min-collateral-ratio new-ratio)
+        (ok true)
+    )
+)
